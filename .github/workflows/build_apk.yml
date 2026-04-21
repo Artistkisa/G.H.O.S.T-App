@@ -2,53 +2,49 @@ name: Build APK
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:
+    branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: zulu
+          java-version: 17
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
-          channel: 'stable'
+          flutter-version: 3.24.0
+          channel: stable
 
       - name: Generate Android project
         run: |
           git stash
-          flutter create --platforms android --overwrite --project-name ghost_app .
+          flutter create --overwrite --project-name ghost_app --platforms android .
           git checkout HEAD -- lib/ pubspec.yaml
           git stash pop || true
 
-      - name: Fix Android SDK & Kotlin compatibility
+      - name: Fix Android SDK & pin dependencies
         run: |
-          # Fix compileSdk/targetSdk (flutter.create uses '=' syntax)
+          # Pin compileSdk/targetSdk to 34
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle
-          # Upgrade Kotlin to 1.9.10 (shared_preferences_android 2.4.7 requires it)
-          sed -i 's/id "org.jetbrains.kotlin.android" version "1.7.10"/id "org.jetbrains.kotlin.android" version "1.9.10"/g' android/settings.gradle
-          sed -i 's/id "org.jetbrains.kotlin.android" version "1.8.22"/id "org.jetbrains.kotlin.android" version "1.9.10"/g' android/settings.gradle
-          # Upgrade Gradle wrapper to 8.4 (required for Kotlin 1.9)
-          sed -i 's/gradle-7.6.3-all.zip/gradle-8.4-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+          # Pin shared_preferences to avoid Kotlin 1.9 requirement
+          sed -i 's/shared_preferences: \^2.2.2/shared_preferences: 2.2.2/g' pubspec.yaml
           cat android/app/build.gradle | grep -E 'compileSdk|targetSdk|minSdk'
-          cat android/settings.gradle | grep kotlin
-          cat android/gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
+          cat pubspec.yaml | grep shared_preferences
 
-      - name: Clean Gradle cache
-        run: cd android && ./gradlew clean || true
+      - name: Clean broken Android SDK 35
+        run: |
+          # GitHub Actions runner has a corrupted android-35 platform; remove it
+          rm -rf /usr/local/lib/android/sdk/platforms/android-35
 
       - name: Install dependencies
         run: flutter pub get
@@ -59,5 +55,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ghost-app-apk
+          name: ghost-app-release
           path: build/app/outputs/flutter-apk/app-release.apk
