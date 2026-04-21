@@ -26,7 +26,11 @@ jobs:
           channel: 'stable'
 
       - name: Generate Android project
-        run: flutter create --platforms android --overwrite --project-name ghost_app .
+        run: |
+          git stash
+          flutter create --platforms android --overwrite --project-name ghost_app .
+          git checkout HEAD -- lib/ pubspec.yaml
+          git stash pop || true
 
       - name: Install dependencies
         run: flutter pub get
