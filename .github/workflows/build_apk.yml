@@ -32,11 +32,17 @@ jobs:
           git checkout HEAD -- lib/ pubspec.yaml
           git stash pop || true
 
-      - name: Fix Android SDK compatibility
+      - name: Fix Android SDK & Kotlin compatibility
         run: |
-          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 34/g' android/app/build.gradle
-          sed -i 's/targetSdk flutter.targetSdkVersion/targetSdk 34/g' android/app/build.gradle
+          # Fix compileSdk/targetSdk (flutter.create uses '=' syntax)
+          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle
+          sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle
+          # Update Kotlin version in settings.gradle
+          sed -i 's/org.jetbrains.kotlin.android\">1.7.10/org.jetbrains.kotlin.android\">1.9.10/g' android/settings.gradle
+          sed -i 's/org.jetbrains.kotlin.android\">1.8.22/org.jetbrains.kotlin.android\">1.9.10/g' android/settings.gradle
           cat android/app/build.gradle | grep -E 'compileSdk|targetSdk|minSdk'
+          cat android/settings.gradle | grep kotlin
 
       - name: Clean Gradle cache
         run: cd android && ./gradlew clean || true
