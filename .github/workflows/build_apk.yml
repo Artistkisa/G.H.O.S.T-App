@@ -30,21 +30,20 @@ jobs:
           git checkout HEAD -- lib/ pubspec.yaml
           git stash pop || true
 
-      - name: Fix Android SDK & pin dependencies
+      - name: Upgrade Kotlin + AGP + Gradle
         run: |
-          # Pin compileSdk/targetSdk to 34
+          # Upgrade AGP to 8.2.0 and Kotlin to 1.9.22
+          sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.2.0"/g' android/settings.gradle
+          sed -i 's/id "org.jetbrains.kotlin.android" version ".*"/id "org.jetbrains.kotlin.android" version "1.9.22"/g' android/settings.gradle
+          # Upgrade Gradle wrapper to 8.4
+          sed -i 's/gradle-.*-all.zip/gradle-8.4-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties
+          # Pin compileSdk/targetSdk
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle
-          # Pin shared_preferences to avoid Kotlin 1.9 requirement
-          sed -i 's/shared_preferences: \^2.2.2/shared_preferences: 2.2.2/g' pubspec.yaml
+          cat android/settings.gradle | grep -E 'android|kotlin'
+          cat android/gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
           cat android/app/build.gradle | grep -E 'compileSdk|targetSdk|minSdk'
-          cat pubspec.yaml | grep shared_preferences
-
-      - name: Clean broken Android SDK 35
-        run: |
-          # GitHub Actions runner has a corrupted android-35 platform; remove it
-          rm -rf /usr/local/lib/android/sdk/platforms/android-35
 
       - name: Install dependencies
         run: flutter pub get
