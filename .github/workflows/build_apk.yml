@@ -32,6 +32,15 @@ jobs:
           git checkout HEAD -- lib/ pubspec.yaml
           git stash pop || true
 
+      - name: Fix Android SDK compatibility
+        run: |
+          sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 34/g' android/app/build.gradle
+          sed -i 's/targetSdk flutter.targetSdkVersion/targetSdk 34/g' android/app/build.gradle
+          cat android/app/build.gradle | grep -E 'compileSdk|targetSdk|minSdk'
+
+      - name: Clean Gradle cache
+        run: cd android && ./gradlew clean || true
+
       - name: Install dependencies
         run: flutter pub get
 
