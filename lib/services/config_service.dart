@@ -8,7 +8,7 @@ class ConfigService {
   static String? _cachedHost;
   static String? _cachedToken;
 
-  /// 获取服务器地址（不含端口）
+  /// 获取原始服务器地址
   static Future<String> getHost() async {
     if (_cachedHost != null) return _cachedHost!;
     final prefs = await SharedPreferences.getInstance();
@@ -33,17 +33,40 @@ class ConfigService {
     _cachedToken = token;
   }
 
+  /// 清理用户输入的 host：去掉协议前缀、末尾斜杠
+  static String _cleanHost(String raw) {
+    var h = raw.trim();
+    if (h.startsWith('http://')) h = h.substring(7);
+    if (h.startsWith('https://')) h = h.substring(8);
+    if (h.startsWith('ws://')) h = h.substring(5);
+    if (h.startsWith('wss://')) h = h.substring(6);
+    if (h.endsWith('/')) h = h.substring(0, h.length - 1);
+    return h;
+  }
+
+  /// 解析 host:port，默认端口 8000
+  static (String host, int port) _parseHostPort(String raw) {
+    final cleaned = _cleanHost(raw);
+    if (cleaned.contains(':')) {
+      final parts = cleaned.split(':');
+      return (parts[0], int.tryParse(parts[1]) ?? 8000);
+    }
+    return (cleaned, 8000);
+  }
+
   /// 获取完整 WebSocket URL
   static Future<Uri> getWsUrl() async {
-    final host = await getHost();
+    final hostRaw = await getHost();
     final token = await getToken();
-    return Uri.parse('ws://$host:8000/chat?token=$token');
+    final (host, port) = _parseHostPort(hostRaw);
+    return Uri.parse('ws://$host:$port/chat?token=$token');
   }
 
   /// 获取完整 HTTP Base URL
   static Future<String> getBaseUrl() async {
-    final host = await getHost();
-    return 'http://$host:8000';
+    final hostRaw = await getHost();
+    final (host, port) = _parseHostPort(hostRaw);
+    return 'http://$host:$port';
   }
 
   /// 检查是否已配置
