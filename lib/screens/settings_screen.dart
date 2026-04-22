@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/config_service.dart';
-import '../services/ghost_ws.dart';
+import '../services/ghost_api.dart';
 import 'chat_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -45,10 +45,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() => _isConnecting = true);
 
-    // 测试连接
-    final ws = GhostWebSocket();
-    final connected = await ws.connect();
-    ws.disconnect();
+    // 测试 HTTP 连接
+    final connected = await GhostApi.healthCheck();
 
     setState(() => _isConnecting = false);
 

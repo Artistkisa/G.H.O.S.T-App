@@ -1,9 +1,8 @@
-import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/message.dart';
-import '../services/ghost_ws.dart';
 import '../services/ghost_api.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/tool_card.dart';
@@ -17,75 +16,116 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final GhostWebSocket _ws = GhostWebSocket();
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<Message> _messages = [];
-  bool _isConnected = false;
+  bool _isConnected = true; // SSE 是短连接，每次请求独立
   bool _isReasoning = false;
   String _currentReasoning = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _initConnection();
-    _ws.connectionStream.listen((connected) {
-      setState(() => _isConnected = connected);
-    });
-    _ws.messageStream.listen(_onMessage);
-  }
-
-  Future<void> _initConnection() async {
-    final ok = await _ws.connect();
-    if (!ok && mounted) {
-      _showSnackBar('连接服务器失败，请检查设置');
-    }
-  }
+  bool _isSending = false;
+  StreamSubscription? _sseSub;
 
   @override
   void dispose() {
-    _ws.disconnect();
+    _sseSub?.cancel();
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _onMessage(Message msg) {
+  void _onEvent(Map<String, dynamic> event) {
+    final type = event['type'] as String?;
     setState(() {
-      if (msg.role == MessageRole.reasoning) {
-        _isReasoning = true;
-        _currentReasoning = msg.text ?? '';
-      } else {
-        _messages.add(msg);
-        if (msg.role == MessageRole.ghost) {
+      switch (type) {
+        case 'reasoning':
+          _isReasoning = true;
+          _currentReasoning = event['text'] as String? ?? '';
+          break;
+        case 'tool_start':
+          _messages.add(Message(
+            id: _uuid(),
+            role: MessageRole.tool,
+            toolName: event['name'] as String?,
+            toolArguments: event['arguments'] as String?,
+            toolPhase: ToolPhase.start,
+            text: event['name'] as String?,
+          ));
+          break;
+        case 'tool_end':
+          _messages.add(Message(
+            id: _uuid(),
+            role: MessageRole.tool,
+            toolName: event['name'] as String?,
+            toolResult: event['result'] as String?,
+            toolDurationMs: event['duration_ms'] as int?,
+            toolPhase: ToolPhase.end,
+            text: event['name'] as String?,
+          ));
+          break;
+        case 'text':
+          _messages.add(Message(
+            id: _uuid(),
+            role: MessageRole.ghost,
+            text: event['text'] as String? ?? '',
+          ));
           _isReasoning = false;
           _currentReasoning = '';
-        }
+          break;
+        case 'done':
+          _isSending = false;
+          break;
       }
     });
     _scrollToBottom();
   }
 
-  void _sendMessage() {
+  Future<void> _sendMessage() async {
     final text = _textController.text.trim();
-    if (text.isEmpty) return;
-
-    if (!_ws.isConnected) {
-      _showSnackBar('未连接到服务器，请检查网络或重新配置');
-      return;
-    }
+    if (text.isEmpty || _isSending) return;
 
     setState(() {
       _messages.add(Message(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        id: _uuid(),
         role: MessageRole.user,
         text: text,
       ));
+      _isSending = true;
+      _isReasoning = false;
+      _currentReasoning = '';
     });
-
-    _ws.sendMessage(text);
     _textController.clear();
     _scrollToBottom();
+
+    try {
+      final stream = GhostApi.streamChat(text);
+      _sseSub = stream.listen(
+        _onEvent,
+        onError: (e) {
+          setState(() {
+            _isSending = false;
+            _messages.add(Message(
+              id: _uuid(),
+              role: MessageRole.ghost,
+              text: '[连接错误] $e',
+            ));
+          });
+          _scrollToBottom();
+        },
+        onDone: () {
+          setState(() => _isSending = false);
+        },
+      );
+    } catch (e) {
+      setState(() {
+        _isSending = false;
+        _messages.add(Message(
+          id: _uuid(),
+          role: MessageRole.ghost,
+          text: '[错误] $e',
+        ));
+      });
+      _scrollToBottom();
+    }
   }
 
   Future<void> _pickImage() async {
@@ -97,7 +137,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final result = await GhostApi.uploadImage(picked.path);
       if (result['url'] != null) {
         final url = result['url'] as String;
-        _ws.sendMessage('[上传图片] $url', images: [url]);
+        _sendWithImages('[上传图片] $url', images: [url]);
       }
     } catch (e) {
       _showSnackBar('上传失败: $e');
@@ -113,10 +153,55 @@ class _ChatScreenState extends State<ChatScreen> {
       if (uploadResult['path'] != null) {
         final path = uploadResult['path'] as String;
         final name = result.files.single.name;
-        _ws.sendMessage('[上传文件: $name] 路径: $path');
+        _sendWithImages('[上传文件: $name] 路径: $path');
       }
     } catch (e) {
       _showSnackBar('上传失败: $e');
+    }
+  }
+
+  Future<void> _sendWithImages(String text, {List<String>? images}) async {
+    if (_isSending) return;
+
+    setState(() {
+      _messages.add(Message(
+        id: _uuid(),
+        role: MessageRole.user,
+        text: text,
+      ));
+      _isSending = true;
+      _isReasoning = false;
+      _currentReasoning = '';
+    });
+    _scrollToBottom();
+
+    try {
+      final stream = GhostApi.streamChat(text, images: images);
+      _sseSub = stream.listen(
+        _onEvent,
+        onError: (e) {
+          setState(() {
+            _isSending = false;
+            _messages.add(Message(
+              id: _uuid(),
+              role: MessageRole.ghost,
+              text: '[连接错误] $e',
+            ));
+          });
+          _scrollToBottom();
+        },
+        onDone: () => setState(() => _isSending = false),
+      );
+    } catch (e) {
+      setState(() {
+        _isSending = false;
+        _messages.add(Message(
+          id: _uuid(),
+          role: MessageRole.ghost,
+          text: '[错误] $e',
+        ));
+      });
+      _scrollToBottom();
     }
   }
 
@@ -138,6 +223,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  String _uuid() {
+    return '${DateTime.now().millisecondsSinceEpoch}_${_random(10000)}';
+  }
+
+  int _random(int max) => DateTime.now().microsecond % max;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -150,7 +241,7 @@ class _ChatScreenState extends State<ChatScreen> {
             height: 10,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: _isConnected ? Colors.green : Colors.red,
+              color: _isSending ? Colors.orange : Colors.green,
             ),
           ),
         ],
@@ -194,11 +285,11 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             IconButton(
               icon: const Icon(Icons.image),
-              onPressed: _pickImage,
+              onPressed: _isSending ? null : _pickImage,
             ),
             IconButton(
               icon: const Icon(Icons.attach_file),
-              onPressed: _pickFile,
+              onPressed: _isSending ? null : _pickFile,
             ),
             Expanded(
               child: TextField(
@@ -207,12 +298,19 @@ class _ChatScreenState extends State<ChatScreen> {
                   hintText: '输入消息...',
                   border: InputBorder.none,
                 ),
+                enabled: !_isSending,
                 onSubmitted: (_) => _sendMessage(),
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.send),
-              onPressed: _sendMessage,
+              icon: _isSending
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send),
+              onPressed: _isSending ? null : _sendMessage,
             ),
           ],
         ),
