@@ -16,13 +16,17 @@ class GhostWebSocket {
   bool _isConnected = false;
   bool get isConnected => _isConnected;
 
-  /// 连接 WebSocket
-  Future<void> connect() async {
-    if (_isConnected) return;
+  /// 连接 WebSocket，返回是否成功
+  Future<bool> connect() async {
+    if (_isConnected) return true;
 
     try {
       final wsUrl = await ConfigService.getWsUrl();
       _channel = WebSocketChannel.connect(wsUrl);
+
+      // 等待握手真正完成，错误的地址/Token 会在这里抛异常
+      await _channel!.ready;
+
       _isConnected = true;
       _connectionController.add(true);
 
@@ -37,9 +41,11 @@ class GhostWebSocket {
           _connectionController.add(false);
         },
       );
+      return true;
     } catch (e) {
       _isConnected = false;
       _connectionController.add(false);
+      return false;
     }
   }
 

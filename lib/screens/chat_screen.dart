@@ -28,11 +28,18 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    _ws.connect();
+    _initConnection();
     _ws.connectionStream.listen((connected) {
       setState(() => _isConnected = connected);
     });
     _ws.messageStream.listen(_onMessage);
+  }
+
+  Future<void> _initConnection() async {
+    final ok = await _ws.connect();
+    if (!ok && mounted) {
+      _showSnackBar('连接服务器失败，请检查设置');
+    }
   }
 
   @override
@@ -62,6 +69,11 @@ class _ChatScreenState extends State<ChatScreen> {
   void _sendMessage() {
     final text = _textController.text.trim();
     if (text.isEmpty) return;
+
+    if (!_ws.isConnected) {
+      _showSnackBar('未连接到服务器，请检查网络或重新配置');
+      return;
+    }
 
     setState(() {
       _messages.add(Message(

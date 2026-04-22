@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/config_service.dart';
+import '../services/ghost_ws.dart';
 import 'chat_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -13,6 +14,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _hostController = TextEditingController();
   final _tokenController = TextEditingController();
   bool _isLoading = true;
+  bool _isConnecting = false;
 
   @override
   void initState() {
@@ -40,6 +42,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     await ConfigService.save(host: host, token: token);
+
+    setState(() => _isConnecting = true);
+
+    // 测试连接
+    final ws = GhostWebSocket();
+    final connected = await ws.connect();
+    ws.disconnect();
+
+    setState(() => _isConnecting = false);
+
+    if (!connected) {
+      _showSnackBar('连接失败，请检查服务器地址、端口和 Token 是否正确');
+      return;
+    }
 
     if (mounted) {
       Navigator.of(context).pushReplacement(
@@ -102,8 +118,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed: _save,
-                      child: const Text('保存并连接'),
+                      onPressed: _isConnecting ? null : _save,
+                      child: _isConnecting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('保存并连接'),
                     ),
                   ),
                 ],
