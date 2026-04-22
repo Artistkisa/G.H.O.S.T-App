@@ -30,7 +30,7 @@ jobs:
           git checkout HEAD -- lib/ pubspec.yaml
           git stash pop || true
 
-      - name: Upgrade Kotlin + AGP + Gradle
+      - name: Upgrade Kotlin + AGP + Gradle + Network permissions
         run: |
           # Upgrade AGP to 8.2.0 and Kotlin to 1.9.22
           sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.2.0"/g' android/settings.gradle
@@ -41,9 +41,12 @@ jobs:
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle
+          # Android 9+ needs usesCleartextTraffic for ws:// WebSocket
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
           cat android/settings.gradle | grep -E 'android|kotlin'
           cat android/gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
           cat android/app/build.gradle | grep -E 'compileSdk|targetSdk|minSdk'
+          grep 'usesCleartextTraffic' android/app/src/main/AndroidManifest.xml
 
       - name: Install dependencies
         run: flutter pub get
