@@ -30,7 +30,43 @@ jobs:
           git checkout HEAD -- lib/ pubspec.yaml
           git stash pop || true
 
-      - name: Upgrade Kotlin + AGP + Gradle + Network permissions
+      - name: Write AndroidManifest.xml with cleartext traffic
+        run: |
+          mkdir -p android/app/src/main
+          cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="ghost_app"
+                  android:name="${applicationName}"
+                  android:icon="@mipmap/ic_launcher"
+                  android:usesCleartextTraffic="true">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+                      <meta-data
+                        android:name="io.flutter.embedding.android.NormalTheme"
+                        android:resource="@style/NormalTheme"
+                        />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+              </application>
+          </manifest>
+          EOF
+          echo "=== AndroidManifest.xml ==="
+          cat android/app/src/main/AndroidManifest.xml
+
+      - name: Upgrade Kotlin + AGP + Gradle
         run: |
           # Upgrade AGP to 8.2.0 and Kotlin to 1.9.22
           sed -i 's/id "com.android.application" version ".*"/id "com.android.application" version "8.2.0"/g' android/settings.gradle
@@ -41,18 +77,22 @@ jobs:
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/g' android/app/build.gradle
           sed -i 's/targetSdk = flutter.targetSdkVersion/targetSdk = 34/g' android/app/build.gradle
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 21/g' android/app/build.gradle
-          # Android 9+ needs usesCleartextTraffic for ws:// WebSocket
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
           cat android/settings.gradle | grep -E 'android|kotlin'
           cat android/gradle/wrapper/gradle-wrapper.properties | grep distributionUrl
           cat android/app/build.gradle | grep -E 'compileSdk|targetSdk|minSdk'
-          grep 'usesCleartextTraffic' android/app/src/main/AndroidManifest.xml
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build APK
         run: flutter build apk --release
+
+      - name: Verify APK manifest has usesCleartextTraffic
+        run: |
+          mkdir -p /tmp/apk_check
+          cd /tmp/apk_check
+          python3 -c "import zipfile; zipfile.ZipFile('$GITHUB_WORKSPACE/build/app/outputs/flutter-apk/app-release.apk').extract('AndroidManifest.xml', '.')"
+          strings AndroidManifest.xml | grep -i "usesCleartextTraffic" && echo "VERIFIED: usesCleartextTraffic found" || (echo "ERROR: usesCleartextTraffic NOT FOUND in APK manifest" && exit 1)
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
