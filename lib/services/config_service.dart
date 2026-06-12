@@ -59,7 +59,7 @@ class ConfigService {
     final hostRaw = await getHost();
     final token = await getToken();
     final (host, port) = _parseHostPort(hostRaw);
-    return Uri.parse('ws://$host:$port/chat?token=$token');
+    return Uri.parse('wss://$host:$port/chat?token=$token');
   }
 
   /// 获取完整 HTTP Base URL
